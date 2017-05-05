@@ -1,0 +1,19 @@
+{
+  "name": "seneca-tests",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "test",
+    "port8080": "gulp p --port 8080",
+    "port8081": "gulp p --port 8081",
+    "port8082": "gulp p --port 8082",
+    "start": "npm-run-all --parallel port8080 port8081 port8082"
+  },
+  "author": "Ventilador",
+  "license": "ISC",
+  "dependencies": {
+    "express": "^4.15.2",
+    "gulp-live-server": "0.0.30"
+  }
+}
