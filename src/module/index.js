@@ -2,7 +2,6 @@ var context = typeof self !== 'undefined' ? self : typeof window !== 'undefined'
 if (!context) {
     throw 'No context';
 }
-var supportObject = require('./utils.js').supportObject;
 
 (function (that) {
     if (that.proteusMW) {
@@ -14,13 +13,14 @@ var supportObject = require('./utils.js').supportObject;
     modulePrototype.factory = invokeLaterAndSetModuleName('$provide', 'factory');
     modulePrototype.service = invokeLaterAndSetModuleName('$provide', 'service');
     modulePrototype.constant = invokeLater('$provide', 'constant', 'unshift');
-    modulePrototype.config = config;
+    modulePrototype.config = invokeLater('$injector', 'invoke', 'push', this._configBlocks);
     modulePrototype.run = function (block) {
         this._runBlocks.push(block);
         return this;
     };
     self.module = internalModule;
     self.config = registerModuleMethod;
+    self.bootstrap = require('./injector');
     var moduleMap = {};
     function internalModule(name, requires) {
         if (requires && Array.isArray(requires)) {
@@ -37,15 +37,17 @@ var supportObject = require('./utils.js').supportObject;
         var instance = Object.create(modulePrototype);
         instance._invokeQueue = [];
         instance._runBlocks = [];
+        instance._configBlocks = [];
         instance.requires = requires;
         instance.name = name;
         return instance;
     }
 
-    function invokeLater(provider, method) {
-        if (!queue) queue = invokeQueue;
+    function invokeLater(provider, method, pusher, collection) {
+
         return function () {
-            this._invokeQueue.push([provider, method, arguments]);
+            collection = collection || this._invokeQueue;
+            collection[pusher || push]([provider, method, arguments]);
             return this;
         };
     }
@@ -121,7 +123,7 @@ var supportObject = require('./utils.js').supportObject;
     }
 
     function toCap(text) {
-        return text.replace(/([A-Z])/g, "$1").toLowerCase();
+        return text[0].toUpperCase() + text.slice(1).toLowerCase()
     }
 
 

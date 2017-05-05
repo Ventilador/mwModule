@@ -1,6 +1,5 @@
-
+var isArray = Array.isArray;
 function createInjector(modulesToLoad, locals) {
-    strictDi = (strictDi === true);
     var INSTANTIATING = {},
         providerSuffix = 'Provider',
         path = [],
@@ -35,7 +34,6 @@ function createInjector(modulesToLoad, locals) {
     instanceInjector.modules = providerInjector.modules = Object.create(null);
     var runBlocks = loadModules(modulesToLoad);
     instanceInjector = protoInstanceInjector.get('$injector');
-    instanceInjector.strictDi = strictDi;
     return instanceInjector;
 
     ////////////////////////////////////
@@ -44,7 +42,7 @@ function createInjector(modulesToLoad, locals) {
 
     function supportObject(delegate) {
         return function (key, value) {
-            if (isObject(key)) {
+            if (typeof key === 'object') {
                 forEach(key, reverseParams(delegate));
             } else {
                 return delegate(key, value);
@@ -121,7 +119,7 @@ function createInjector(modulesToLoad, locals) {
                 throw 'Invalid module type while loading modules';
             }
             loadedModules[module] = true;
-            moduleFn = porteusMW(module);
+            moduleFn = proteusMW.module(module);
             instanceInjector.modules[module] = moduleFn;
             runBlocks = runBlocks.concat(loadModules(moduleFn.requires)).concat(moduleFn._runBlocks);
             runInvokeQueue(moduleFn._invokeQueue);
@@ -171,7 +169,7 @@ function createInjector(modulesToLoad, locals) {
 
         function injectionArgs(fn, locals, serviceName) {
             var args = [],
-                $inject = createInjector.$$annotate(fn, strictDi, serviceName);
+                $inject = createInjector.$$annotate(fn, true, serviceName);
 
             for (var i = 0, length = $inject.length; i < length; i++) {
                 var key = $inject[i];
@@ -186,11 +184,7 @@ function createInjector(modulesToLoad, locals) {
         }
 
         function isClass(func) {
-            // Support: IE 9-11 only
-            // IE 9-11 do not support classes and IE9 leaks with the code below.
-            if (msie || typeof func !== 'function') {
-                return false;
-            }
+
             var result = func.$$ngIsClass;
             if (!isBoolean(result)) {
                 result = func.$$ngIsClass = /^class\b/.test(stringifyFn(func));
@@ -247,5 +241,62 @@ function valueFn(value) {
         return value;
     };
 }
+function isFunction(fn) {
+    return typeof fn === 'function';
+}
+function isBoolean(a) {
+    return typeof a === 'boolean';
+}
 
+function isUndefined(a) {
+    return typeof a === 'undefined';
+}
+function stringifyFn(fn) {
+    return Function.prototype.toString.call(fn);
+}
+
+function assertNotHasOwnProperty(name) {
+    return name !== 'hawOwnProperty';
+}
+createInjector.$$annotate = annotate;
 module.exports = createInjector;
+function annotate(fn, strictDi, name) {
+    var $inject,
+        argDecl,
+        last;
+
+    if (typeof fn === 'function') {
+        if (!($inject = fn.$inject)) {
+            $inject = [];
+            if (fn.length) {
+                if (strictDi) {
+                    if (!isString(name) || !name) {
+                        name = fn.name || anonFn(fn);
+                    }
+                    throw $injectorMinErr('strictdi',
+                        '{0} is not using explicit annotation and cannot be invoked in strict mode', name);
+                }
+                argDecl = extractArgs(fn);
+                forEach(argDecl[1].split(FN_ARG_SPLIT), function (arg) {
+                    arg.replace(FN_ARG, function (all, underscore, name) {
+                        $inject.push(name);
+                    });
+                });
+            }
+            fn.$inject = $inject;
+        }
+    } else if (isArray(fn)) {
+        last = fn.length - 1;
+        assertArgFn(fn[last], 'fn');
+        $inject = fn.slice(0, last);
+    } else {
+        assertArgFn(fn, 'fn', true);
+    }
+    return $inject;
+}
+
+function assertArgFn(fn) {
+    if (!isFunction(fn)) {
+        throw 'not a function';
+    }
+}
