@@ -1,18 +1,24 @@
 var isArray = Array.isArray;
-function createInjector(modulesToLoad, locals) {
+function createInjector(modulesToLoad, locals, config_) {
     var INSTANTIATING = {},
+        config = config_ || {},
         providerSuffix = 'Provider',
         path = [],
         loadedModules = Object.create(null),
+        requires = [],
+        publishes = [],
         providerCache = {
-            $provide: Object.assign({
+            $provide: {
                 provider: supportObject(provider),
                 factory: supportObject(factory),
                 service: supportObject(service),
                 value: supportObject(value),
                 constant: supportObject(constant),
                 decorator: decorator
-            }, locals)
+            },
+            $publish: {
+                service: supportObject(publish)
+            }
         },
         providerInjector = (providerCache.$injector =
             createInternalInjector(providerCache, function (serviceName, caller) {
@@ -30,11 +36,72 @@ function createInjector(modulesToLoad, locals) {
             }),
         instanceInjector = protoInstanceInjector;
 
+
+
+    Object.assign(providerCache, locals);
     providerCache['$injector' + providerSuffix] = { $get: valueFn(protoInstanceInjector) };
     instanceInjector.modules = providerInjector.modules = Object.create(null);
     var runBlocks = loadModules(modulesToLoad);
     instanceInjector = protoInstanceInjector.get('$injector');
-    return instanceInjector;
+    if (config.publisher) {
+        callPublishers(requires, config.publisher);
+    } else {
+        configPublisherDefault();
+    }
+    return new Promise(function (resolve) {
+        var toSearch = [];
+        for (var ii = 0; ii < requires.length; ii++) {
+            if (!providerCache[requires[ii] + 'Provider'] && !instanceCache[require[ii]]) {
+                toSearch.push(requires[ii]);
+            }
+        }
+        if (toSearch.length) {
+            if (!isArray(config.listenUrls)) {
+                throw 'Missing dependencies -> \n\t' + toSearch.join(',\n\t');
+            }
+            // TODO async
+
+            setTimeout(resolve, 0, instanceInjector);
+        } else {
+
+
+            resolve(instanceInjector);
+        }
+    });
+
+
+    function configPublisherDefault() {
+        if (!locals.app) {
+            throw 'Missing app';
+        }
+        locals.app
+            .post('*', function (req, res) {
+                var serviceName = req.url.substr(1);
+                if (~publishes.indexOf(serviceName)) {
+                    var body = req.body || {}, result;
+                    var service = instanceInjector.get(serviceName);
+                    if (body.$apply) {
+                        result = service.apply(null, body.$apply);
+                    } else {
+                        result = service(req.body);
+                    }
+                    return result.then(function (val) {
+                        res.send({ result: val });
+                    }).catch(function (error) {
+                        res.status(503).send(error);
+                    });
+                }
+                res.status(404).send('Service "' + serviceName + '" not found');
+            });
+    }
+
+
+
+    function callPublishers(array, fn) {
+        for (var ii = 0; ii < array.length; ii++) {
+            fn(array[ii], instanceInjector.get(array[ii]));
+        }
+    }
 
     ////////////////////////////////////
     // $provider
@@ -43,7 +110,7 @@ function createInjector(modulesToLoad, locals) {
     function supportObject(delegate) {
         return function (key, value) {
             if (typeof key === 'object') {
-                forEach(key, reverseParams(delegate));
+                forEachReverse(key, delegate);
             } else {
                 return delegate(key, value);
             }
@@ -61,6 +128,19 @@ function createInjector(modulesToLoad, locals) {
         return (providerCache[name + providerSuffix] = provider_);
     }
 
+    function publish(name, factoryFn_) {
+        var $inject = createInjector.$$annotate(factoryFn_, '');
+        var factoryFn = Array.isArray(factoryFn_) ? factoryFn_[factoryFn_.length - 1] : factoryFn_;
+        if (typeof (factoryFn) !== 'function') {
+            throw 'Invalid constructor at service';
+        }
+        requires = requires.concat(factoryFn.$inject = $inject);
+        publishes.push(name);
+        return (providerCache[name + providerSuffix] = {
+            $get: factoryFn
+        });
+    }
+
     function enforceReturnValue(name, factory) {
         return /** @this */ function enforcedReturnValue() {
             var result = instanceInjector.invoke(factory, this);
@@ -71,13 +151,28 @@ function createInjector(modulesToLoad, locals) {
         };
     }
 
-    function factory(name, factoryFn, enforce) {
+    function factory(name, factoryFn_, enforce) {
+        var $inject = createInjector.$$annotate(factoryFn_, '');
+        var factoryFn = Array.isArray(factoryFn_) ? factoryFn_[factoryFn_.length - 1] : factoryFn_;
+        if (typeof (factoryFn) !== 'function') {
+            throw 'Invalid constructor at service';
+        }
+        requires = requires.concat(factoryFn.$inject = $inject);
         return provider(name, {
-            $get: enforce !== false ? enforceReturnValue(name, factoryFn) : factoryFn
+            $get: Object.assign(enforce !== false ? enforceReturnValue(name, factoryFn) : factoryFn, {
+                $$moduleName: factoryFn.$$moduleName,
+                $$requires: factoryFn.$$requires
+            })
         });
     }
 
-    function service(name, constructor) {
+    function service(name, constructor_) {
+        var $inject = createInjector.$$annotate(constructor_, '');
+        var constructor = Array.isArray(constructor_) ? constructor_[constructor_.length - 1] : constructor_;
+        if (typeof (constructor) !== 'function') {
+            throw 'Invalid constructor at service';
+        }
+        requires = requires.concat(constructor.$inject = $inject);
         return factory(name, ['$injector', function ($injector) {
             return $injector.instantiate(constructor);
         }]);
@@ -169,7 +264,7 @@ function createInjector(modulesToLoad, locals) {
 
         function injectionArgs(fn, locals, serviceName) {
             var args = [],
-                $inject = createInjector.$$annotate(fn, true, serviceName);
+                $inject = createInjector.$$annotate(fn, serviceName);
 
             for (var i = 0, length = $inject.length; i < length; i++) {
                 var key = $inject[i];
@@ -260,7 +355,7 @@ function assertNotHasOwnProperty(name) {
 }
 createInjector.$$annotate = annotate;
 module.exports = createInjector;
-function annotate(fn, strictDi, name) {
+function annotate(fn, name) {
     var $inject,
         argDecl,
         last;
@@ -269,19 +364,12 @@ function annotate(fn, strictDi, name) {
         if (!($inject = fn.$inject)) {
             $inject = [];
             if (fn.length) {
-                if (strictDi) {
-                    if (!isString(name) || !name) {
-                        name = fn.name || anonFn(fn);
-                    }
-                    throw $injectorMinErr('strictdi',
-                        '{0} is not using explicit annotation and cannot be invoked in strict mode', name);
+                if (!isString(name) || !name) {
+                    name = fn.name;
                 }
-                argDecl = extractArgs(fn);
-                forEach(argDecl[1].split(FN_ARG_SPLIT), function (arg) {
-                    arg.replace(FN_ARG, function (all, underscore, name) {
-                        $inject.push(name);
-                    });
-                });
+                throw $injectorMinErr('strictdi',
+                    '{0} is not using explicit annotation and cannot be invoked in strict mode', name);
+
             }
             fn.$inject = $inject;
         }
@@ -293,6 +381,37 @@ function annotate(fn, strictDi, name) {
         assertArgFn(fn, 'fn', true);
     }
     return $inject;
+}
+
+function forEachReverse(obj, fn, context) {
+    if (!obj || typeof fn !== 'function') {
+        return;
+    }
+    var ii = 0;
+    context = context || null;
+    if (isArray(obj)) {
+        for (; ii < obj.length; ii++) {
+            fn.call(context, ii, obj[ii]);
+        }
+    } else {
+        for (var array = Object.keys(obj), key = array[ii], value = obj[key]; ii < array.length; key = array[++ii], value = obj[key]) {
+            fn.call(context, key, value);
+        }
+    }
+}
+
+function $injectorMinErr(type, message) {
+    var args = new Array(arguments.length);
+    for (var ii = 2, jj = 0; ii < arguments.length; ii++ , jj++) {
+        args[jj] = arguments[ii];
+    }
+    return type + ': ' + format.call(message, args);
+}
+
+function format(args) {
+    return this.replace(/{(\d+)}/g, function (match, number) {
+        return typeof args[number] != 'undefined' ? args[number] : match;
+    });
 }
 
 function assertArgFn(fn) {
