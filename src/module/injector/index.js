@@ -1,4 +1,5 @@
 var isArray = Array.isArray;
+var request = require('request');
 function createInjector(modulesToLoad, locals, config_) {
     var INSTANTIATING = {},
         config = config_ || {},
@@ -42,12 +43,7 @@ function createInjector(modulesToLoad, locals, config_) {
     providerCache['$injector' + providerSuffix] = { $get: valueFn(protoInstanceInjector) };
     instanceInjector.modules = providerInjector.modules = Object.create(null);
     var runBlocks = loadModules(modulesToLoad);
-    instanceInjector = protoInstanceInjector.get('$injector');
-    if (config.publisher) {
-        callPublishers(requires, config.publisher);
-    } else {
-        configPublisherDefault();
-    }
+
     return new Promise(function (resolve) {
         var toSearch = [];
         for (var ii = 0; ii < requires.length; ii++) {
@@ -56,18 +52,79 @@ function createInjector(modulesToLoad, locals, config_) {
             }
         }
         if (toSearch.length) {
-            if (!isArray(config.listenUrls)) {
+            var urls = config.listenUrls;
+            if (!isArray(urls)) {
                 throw 'Missing dependencies -> \n\t' + toSearch.join(',\n\t');
             }
-            // TODO async
+            var promise = Promise.all(urls.map(function (url) {
+                return new Promise(function (res, rej) {
+                    request(url + '/$metadata', {
+                        method: 'GET',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        }
 
-            setTimeout(resolve, 0, instanceInjector);
+                    }, function (error, response, body) {
+                        if (error) {
+                            rej(error);
+                        } else {
+                            res(JSON.parse(body).$metadata);
+                        }
+                    });
+                });
+            }));
+            promise.then(function (metadatas) {
+                console.log(metadatas);
+                for (var ii = 0; ii < metadatas.length; ii++) {
+                    for (var jj = 0; jj < metadatas[ii].length; jj++) {
+                        createOnlineService(metadatas[ii][jj].$url, metadatas[ii][jj].$name);
+                    }
+                }
+                flush();
+                resolve(instanceInjector);
+            });
         } else {
-
-
+            flush();
             resolve(instanceInjector);
         }
     });
+
+    function flush() {
+        instanceInjector = protoInstanceInjector.get('$injector');
+        if (config.publisher) {
+            callPublishers(requires, config.publisher);
+        } else {
+            configPublisherDefault();
+        }
+        for (var ii = 0; ii < runBlocks.length; ii++) {
+            instanceInjector.invoke(runBlocks[ii]);
+        }
+    }
+
+    function createOnlineService(url, methodName) {
+
+        instanceCache[methodName] = function () {
+            var args = [];
+            return new Promise(function (resolve, reject) {
+                console.log(url);
+                request(url, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        $apply: args
+                    })
+                }, function (error, response, body) {
+                    if (error) {
+                        reject(error);
+                    } else {
+                        resolve({ result: body });
+                    }
+                });
+            });
+        };
+    }
 
 
     function configPublisherDefault() {
@@ -92,6 +149,16 @@ function createInjector(modulesToLoad, locals, config_) {
                     });
                 }
                 res.status(404).send('Service "' + serviceName + '" not found');
+            })
+            .get('/[\$]metadata', function (req, res) {
+                res.send({
+                    $metadata: publishes.map(function (item) {
+                        return {
+                            $url: req.protocol + '://' + req.get('host') + '/' + item,
+                            $name: item
+                        };
+                    })
+                });
             });
     }
 

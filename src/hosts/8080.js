@@ -13,7 +13,7 @@ app.use(bodyParser.urlencoded({ extended: true }))
         ));
     })
     .get('*', function (req, res) {
-        res.send(toParam('Hello World', req.host, req.baseUrl, req.originalUrl, req.params, req.query));
+        
     });
 
 

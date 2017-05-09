@@ -20,6 +20,7 @@ proteusMW.module('numbers', ['common'])
 proteusMW.bootstrap(['numbers'], {
     app: app
 }, {}).then(function (injector) {
+    console.log('loaded: 8082');
 });
 
 
