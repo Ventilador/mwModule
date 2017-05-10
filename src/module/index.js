@@ -4,6 +4,7 @@ if (!context) {
 } else if (context.proteusMW) {
     return;
 }
+;
 
 (function (that) {
     var self = that.proteusMW = {};
@@ -79,6 +80,9 @@ if (!context) {
 
     function registerModuleMethod(name, config) {
         if (!name || !config || typeof name !== 'string' || typeof config !== 'object') {
+            if (typeof config === 'function') {
+                modulePrototype[name] = config;
+            }
             throw 'Invalid arguments';
         }
 

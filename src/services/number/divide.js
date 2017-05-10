@@ -1,5 +1,6 @@
 module.exports = function divideService() {
     return function (a, b) {
+       
         return new Promise(function (resolve, reject) {
             if (typeof a !== 'number') {
                 return reject('param a is not a number');

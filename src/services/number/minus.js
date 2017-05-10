@@ -1,6 +1,7 @@
 module.exports = minusService;
 function minusService() {
     return function (a, b) {
+      
         return new Promise(function (resolve, reject) {
             if (typeof a !== 'number') {
                 return reject('param a is not a number');

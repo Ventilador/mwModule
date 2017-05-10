@@ -2,9 +2,8 @@ sumService.$inject = ['slice'];
 module.exports = sumService;
 function sumService(slice) {
     return function () {
+       
         var args = slice.apply(null, arguments);
-        console.log('sum');
-        console.log(args);
 
         return new Promise(function (resolve, reject) {
             var ii = args.length;

@@ -74,7 +74,6 @@ function createInjector(modulesToLoad, locals, config_) {
                 });
             }));
             promise.then(function (metadatas) {
-                console.log(metadatas);
                 for (var ii = 0; ii < metadatas.length; ii++) {
                     for (var jj = 0; jj < metadatas[ii].length; jj++) {
                         createOnlineService(metadatas[ii][jj].$url, metadatas[ii][jj].$name);
@@ -102,24 +101,29 @@ function createInjector(modulesToLoad, locals, config_) {
     }
 
     function createOnlineService(url, methodName) {
-
         instanceCache[methodName] = function () {
-            var args = [];
+            var ii, args = new Array(ii = arguments.length);
+            while (ii--) args[ii] = arguments[ii];
+            var that = this;
             return new Promise(function (resolve, reject) {
-                console.log(url);
+                if (that.auth !== 'pedro') {
+                    reject('not auth');
+                    return;
+                }
+
                 request(url, {
                     method: 'POST',
                     headers: {
-                        'Content-Type': 'application/json'
+                        'auth': that.auth
                     },
-                    body: JSON.stringify({
+                    json: {
                         $apply: args
-                    })
+                    }
                 }, function (error, response, body) {
                     if (error) {
                         reject(error);
                     } else {
-                        resolve({ result: body });
+                        resolve(body);
                     }
                 });
             });
@@ -138,15 +142,19 @@ function createInjector(modulesToLoad, locals, config_) {
                     var body = req.body || {}, result;
                     var service = instanceInjector.get(serviceName);
                     if (body.$apply) {
-                        result = service.apply(null, body.$apply);
+                        result = service.apply(req.headers, body.$apply);
                     } else {
-                        result = service(req.body);
+                        result = service.call(req.headers, body);
                     }
-                    return result.then(function (val) {
-                        res.send({ result: val });
-                    }).catch(function (error) {
-                        res.status(503).send(error);
-                    });
+                    if (result && typeof result === 'object' && result.then) {
+                        return result.then(function (val) {
+                            res.send(Object(val));
+                        }).catch(function (error) {
+                            res.status(error && error.status || 503).send(error);
+                        });
+                    }
+                    res.send(result);
+                    return;
                 }
                 res.status(404).send('Service "' + serviceName + '" not found');
             })
